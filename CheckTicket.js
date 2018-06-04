@@ -18,11 +18,11 @@ while (true) {
     alert("Your ticket has " + nw.toString() + " winning numbers, and " + ((nb == 1) ? "did" : "did not") + " match the bonus.");
     nmm = 0;
     jQuery("div.pastWinNumMMGroup").first().children("ul.pastWinNumbers").each(function(index) {
-        w = Array.prototype.slice.call(this.children).map(function(item) {
+        var m = Array.prototype.slice.call(this.children).map(function(item) {
             return item.textContent
         }).map(Number);
         for (i = 0; i < 7; i++) {
-            if (t[i] == w[i]) {
+            if (t[i] == m[i]) {
                 if (i == 6) {
                     nmm++
                 } else {
