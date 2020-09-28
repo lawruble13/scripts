@@ -1,0 +1,166 @@
+#!/bin/bash
+
+# Print stderr in red
+exec 2> >(sed $'s/.*/\e[31m&\e[m/'>&2)
+
+# Set variables for default operation
+LOOK_DIR="$PWD"
+PATTERN=""
+MATCH_MODE="regex"
+LOCAT_MODE="anywhere"
+VERBOSE=0
+
+while getopts ":ad:e:f:hvx" opt; do
+    case $opt in
+	a) # Sets pattern to match anywhere in the target
+	    if [ "$VERBOSE" -ge 1 ]; then echo "Setting match location mode to anywhere."; fi
+	    LOCAT_MODE="anywhere"
+	    A_FLAG_USED=true
+	    ;;
+	d) # Sets the directory to look in
+	    LOOK_DIR="$OPTARG"
+	    if [ "$VERBOSE" -ge 1 ]; then echo "Setting directory: \"$OPTARG\""; fi
+	    ;;
+	e) # Sets the pattern, and sets the mode to regex matching
+	    if [ ${OPTARG::1} = "-" ]; then
+		let "OPTIND -= 1"
+	    else
+		PATTERN="$OPTARG"
+	    fi
+	    MATCH_MODE="regex"
+	    if [ "$VERBOSE" -ge 1 ]; then echo "Setting match mode to regex, pattern: \"$OPTARG\""; fi
+	    ;;
+	f) # Sets the pattern, and sets the mode to fixed matching
+	    if [ ${OPTARG::1} = "-" ]; then
+		let "OPTIND -= 1"
+	    else
+		PATTERN="$OPTARG"
+	    fi
+	    MATCH_MODE="fixed"
+	    if [ "$VERBOSE" -ge 1 ]; then echo "Setting match mode to fixed, pattern: \"$OPTARG\""; fi
+	    ;;
+	h) # Display the help page
+	    echo "Usage: findlinks [OPTIONS] [LOOK_DIR [PATTERN]]"
+	    echo "Information:"
+	    echo -e "\tThe look directory is, by default, the current directory."
+	    echo -e "\tThe pattern is, by default, \".\" in regular expression mode and anywhere mode, so it will match any target."
+	    echo -e "\tOptions -a, -h, -v, and -x may be combined (e.g. -ahvx), but -e and -f may only be combined in this manner if they are the last option (i.e. findlinks -avf is fine, but findlinks -afv will not work correctly."
+	    echo "Options:"
+	    echo -e "\t-a           Set to anywhere mode (the pattern will match anywhere in the link target)"
+	    echo -e "\t-d LOOK_DIR  Set the look directory to LOOK_DIR, which the command will look through recursively"
+	    echo -e "\t-e [PATTERN] Set the matching mode to regular expressions (most ERE special characters are not escaped), and set the pattern to PATTERN if provided"
+	    echo -e "\t-f [PATTERN] Set the matching mode to fixed (most ERE special characters are escaped), and set the pattern to PATTERN if provided"
+	    echo -e "\t-h           Show this help menu"
+	    echo -e "\t-v           Increase verbosity (so -vv is more verbose)"
+	    echo -e "\t-x           Set to exact mode (the pattern must match the entire link target)"
+	    echo -e "\tLOOK_DIR     Set the look directory to LOOK_DIR, overriding -d"
+	    echo -e "\tPATTERN      Set the pattern to PATTERN, overriding -e and -f, but doesn't change the mode"
+	    exit 0
+	    ;;
+	v) # Increase the verbosity level (currently 0, 1, or 2)
+	    let "VERBOSE += 1"
+	    if [ "$VERBOSE" -eq 1 ]; then echo "Setting verbose."; fi
+	    if [ "$VERBOSE" -eq 2 ]; then echo "Setting very verbose."; fi
+	    if [ "$VERBOSE" -ge 3 ]; then echo "No more verbosity available."; VERBOSE=2; fi
+	    ;;
+	x) # Sets the matching mode to exact, so the pattern must match the link target exactly
+	    if [ "$VERBOSE" -ge 1 ]; then echo "Setting match location mode to exact."; fi
+	    LOCAT_MODE="exact"
+	    ;;
+	\?) # Handle invalid option
+	    echo "Invalid option: -$OPTARG" >&2
+	    exit 1
+	    ;;
+	:) # Handle options missing argument
+	    case $OPTARG in
+		e) # No option, just set the mode to regex
+		    MATCH_MODE="regex"
+		    ;;
+		f) # No option, just set the mode to fixed
+		    MATCH_MODE="fixed"
+		    ;;
+		*)
+		    echo "Option -$OPTARG requires an argument." >&2
+		    exit 1
+		    ;;
+	    esac
+    esac
+done
+# Clear all the options, so we can look at the optional parameters
+shift "$((OPTIND-1))"
+
+if [[ $# == "0" ]]; then
+    if [ "$VERBOSE" -ge 2 ]; then echo "No arguments, using existing look directory and pattern."; fi
+elif [[ $# == "1" ]]; then
+    if [ "$VERBOSE" -ge 2 ]; then echo "Setting look directory from argument, using existing pattern."; fi
+    LOOK_DIR="$1"
+elif [[ $# == "2" ]]; then
+    if [ "$VERBOSE" -ge 2 ]; then echo "Setting look directory and pattern from argument."; fi
+    LOOK_DIR="$1"
+    PATTERN="$2"
+else
+    echo "Too many arguments, expected at most 2." >&2
+    exit 1
+fi
+
+if [ "$VERBOSE" -ge 1 ]; then echo -n "Preparing look directory: "; fi
+# Escape all special characters that will mess up sed
+SED_LOOK_DIR=$(echo "$LOOK_DIR"|sed 's,\([][$.()^*?+/\{}|"]\),\\\1,g')
+if [ "${SED_LOOK_DIR: -1}" != "/" ]; then SED_LOOK_DIR="${SED_LOOK_DIR}\/"; fi
+if [ "$VERBOSE" -ge 1 ]; then echo "\"${SED_LOOK_DIR}\""; fi
+
+if [ "$MATCH_MODE" = "regex" ]; then
+    if [ "$VERBOSE" -ge 1 ]; then echo -n "Preparing regex pattern from input pattern \"${PATTERN}\": "; fi
+    # The user provided a regex pattern, so escape only the stuff that will mess up egrep
+    PATTERN=$(echo "$PATTERN"|sed '/[$^]/d')
+    if [ "$VERBOSE" -ge 1 ]; then echo "\"${PATTERN}\""; fi
+elif [ "$MATCH_MODE" = "fixed" ]; then
+    if [ "$VERBOSE" -ge 1 ]; then echo -n "Preparing fixed pattern: "; fi
+    # The user provided a fixed pattern, so escape all characters that are special in egrep
+    ## We don't just use grep here because it makes escaping more difficult, rather than less
+    ## For example, the egrep pattern (a|b) is a group that captures a match of a or b
+    ## The same pattern in grep is a noncapturing group that matches a or b, but escaping it still
+    ## leaves us with special behaviour as it's now a capturing group
+    ## To avoid all of this, we just use egrep and escape everything
+    PATTERN=$(echo "$PATTERN"|sed 's,\([][$.()^*?+/\{}|"]\),\\\1,g')
+    if [ "$VERBOSE" -ge 1 ]; then echo "\"${PATTERN}\""; fi
+fi
+
+if [ "$LOCAT_MODE" = "anywhere" ]; then
+    if [ "$VERBOSE" -ge 1 ]; then echo "Preparing pattern to match anywhere..."; fi
+    # This pattern lets there be anything before or after the provided pattern
+    PATTERN=$(echo "$PATTERN"|sed 's/.*/.*&.*/')
+elif [ "$LOCAT_MODE" = "exact" ]; then
+    if [ "$VERBOSE" -ge 1 ]; then echo "Preparing pattern to match exactly..."; fi
+    # This pattern requires that there be nothing before or after the provided pattern
+    PATTERN=$(echo "$PATTERN"|sed 's/.*/&/')
+    # No change, added for completeness
+fi
+
+if [ "$VERBOSE" -ge 2 ]; then echo "sed pattern: s/^.*[[:digit:]]\{2\}:\?[[:digit:]]\{2\} \(${SED_LOOK_DIR}.*\) -> \(.*\)$/\1 -> \2/"; fi
+
+# This line does most of the heavy lifting, so let's break it down:
+## find "${LOOK_DIR}" -type l -print0
+## Recursively finds all symbolic links in LOOK_DIR, and prints them to stdout separated by null characters
+##
+## xargs -0 ls -al
+## Accepts items on stdin separated by null characters (in conjunction with -print0 above, this lets paths with
+## whitespace be processed), and passes them as parameters to ls -al
+##
+## sed "s/^.*[[:digit:]]\{2\}:\?[[:digit:]]\{2\} \(${SED_LOOK_DIR}.*\) -> \(.*\)$/\1 ->\2/"
+## This is extremely not portable, and definitely not the right way to get this information. However, realpath seems
+## to only ever provide absolute paths, so for the moment this is the solution I'm using. When ls -al prints a symbolic
+## link, the format is
+### [permissions] [# links] [owner] [group] [size] [month] [day] [time/year] [link] -> [target]
+## To match this, we look for the time/year (which is either xx:xx or xxxx), followed by the path we're looking for,
+## followed by " -> ", and then capture everything up to end of line as the target. This SHOULD always work, as long
+## as ls -al has the above format and the link path doesn't contain " -> ". Having captured the link and the target,
+## they are then put back onto stdout in the format
+### [link] -> [target]
+##
+## egrep "^.* -> ${PATTERN}$"
+## Thanks to the preparations above, PATTERN now needs to be an exact match as an ERE for the target, so we again presume
+## that the link path doesn't contain " -> ", and look for lines whose target is an exact match for PATTERN, then prints
+## everything to stdout
+
+find "${LOOK_DIR}" -type l -print0 | xargs -0 ls -al | sed "s/^.*[[:digit:]]\{2\}:\?[[:digit:]]\{2\} \(${SED_LOOK_DIR}.*\) -> \(.*\)$/\1 -> \2/" | egrep "^.* -> ${PATTERN}$"

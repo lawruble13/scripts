@@ -1,0 +1,32 @@
+#!/bin/bash
+
+NEW_PATH="."
+
+while getopts ":m:r:c:" opt; do
+    case $opt in
+	m)
+	    echo "Moving file $OPTARG from Downloads to $NEW_PATH"
+	    mv "$HOME/Downloads/$OPTARG" "$NEW_PATH"
+	    NEW_PATH="."
+	    ;;
+	c)
+	    echo "Copying file $OPTARG from Downloads to $NEW_PATH"
+	    cp "$HOME/Downloads/$OPTARG" "$NEW_PATH"
+	    NEW_PATH="."
+	    ;;
+	r)
+	    echo "Renaming to $OPTARG"
+	    NEW_PATH="./$OPTARG"
+	    ;;
+	\?)
+	    echo "Invalid option: -$OPTARG" >&2
+	    exit 1
+	    ;;
+	:)
+	    echo "Option -$OPTARG requires an argument." >&2
+	    exit 1
+	    ;;
+    esac
+done
+
+

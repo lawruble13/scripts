@@ -1,0 +1,69 @@
+#!/bin/bash
+
+function subs {
+    TO_SUBS=$(echo -n "$3" | sed -E 's/\\/\\\\/g')
+    echo -n $1 | sed -E "s/$2/${TO_SUBS}/g"
+}
+
+if [ -e .runconf.sh ]; then
+    source .runconf.sh
+else
+    echo "No configuration file found, exiting."
+    exit 1
+fi
+
+ARC_VER_FORMAT=$(subs "$ARCHIVE_FORMAT" "%v" "$VERSION_FORMAT")
+
+REMOTE_LV=$(curl -sI $url | grep -o -E 'filename=.*$' | sed -E $(subs 's/filename=(%f).*$/\1/' "%f" "$ARC_VER_FORMAT"))
+LOCAL_LV=$(ls -rv "$ARCHIVE_FOLDER" | head -n 1)
+ACTUAL_LV=$(echo -e "${REMOTE_LV}\n${LOCAL_LV}" | sort -rV | head -n 1)
+USED_VER="$LOCAL_LV"
+if [[ "$LOCAL_LV" == "$ACTUAL_LV" ]]; then
+    echo "Already up to date. Starting..."
+    if [[ "$REMOTE_LV" != "$ACTUAL_LV" ]]; then
+	echo "Local version more recent than remote version." >&2
+    fi
+else
+    read -p "A new version is available. Would you like to download it? (y/n) " response
+    while [[ "$response" != "n" ]] && [[ "$response" != "y" ]]; do
+	read -p "Please enter y or n. " response
+    done
+    if [[ "$response" == "y" ]]; then
+	echo "Downloading new version..."
+	MYPATH=$(pwd)
+	cd "$ARCHIVE_FOLDER"
+	curl -O -J -L $url
+	cd "$MYPATH"
+	USED_VER="$REMOTE_LV"
+    else
+	echo "Okay. Starting old version..."
+    fi
+fi
+
+VERSION_NUMBER=$(echo -n "$USED_VER" | sed -E $(subs "s/${ARCHIVE_FORMAT}/\1/" "%v" "(${VERSION_FORMAT})"))
+EXEC_VER_PATH=$(subs "Executable/${EXEC_FORMAT}" "%v" "${VERSION_NUMBER}")
+
+if [ -e "$EXEC_VER_PATH" ]; then
+    echo "No unpacking necessary."
+else
+    echo "Unpacking..."
+    if [ -d ./Executable ]; then
+	rm -rf ./Executable/*
+    else
+	mkdir Executable
+    fi
+    if [ -d ./Temp ]; then
+	rm -rf ./Temp
+    fi
+    mkdir Temp
+    $EXTRACT_COMMAND $EXTRACT_LOC_FLAG Temp "${ARCHIVE_FOLDER}/${USED_VER}"
+    MOVE_ITEM_FOLDER=$(subs "./Temp/${MOVE_FROM_TEMP}" "%v" "${VERSION_NUMBER}")
+    mv "$MOVE_ITEM_FOLDER"* ./Executable/
+    rm -rf Temp
+fi
+
+if grep -q Microsoft /proc/version; then
+    nohup "./$EXEC_VER_PATH" &>/dev/null &
+else
+    nohup wine "./$EXEC_VER_PATH" &>/dev/null &
+fi
