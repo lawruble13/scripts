@@ -1,17 +1,21 @@
 #!/bin/bash
 
 NEW_PATH="."
+DL_FOLDER="$HOME/Downloads"
 
-while getopts ":m:r:c:" opt; do
+while getopts ":m:r:c:d:" opt; do
     case $opt in
+	d)
+	    echo "Setting downloads folder to $OPTARG"
+	    
 	m)
 	    echo "Moving file $OPTARG from Downloads to $NEW_PATH"
-	    mv "$HOME/Downloads/$OPTARG" "$NEW_PATH"
+	    mv "$DL_FOLDER/$OPTARG" "$NEW_PATH"
 	    NEW_PATH="."
 	    ;;
 	c)
 	    echo "Copying file $OPTARG from Downloads to $NEW_PATH"
-	    cp "$HOME/Downloads/$OPTARG" "$NEW_PATH"
+	    cp "$DL_FOLDER/$OPTARG" "$NEW_PATH"
 	    NEW_PATH="."
 	    ;;
 	r)

@@ -14,11 +14,11 @@ else
     exit 1
 fi
 
-GREP_FILTER=$(subs "^$VERSION_PATTERN\$" "%v" "$VERSION_FORMAT")
-SED_COMMAND=$(subs "s/^$VERSION_PATTERN\$/\1/" "%v" "($VERSION_FORMAT)")
+GREP_FILTER=$(subs "^$VERSION_PATTERN.?\$" "%v" "$VERSION_FORMAT")
+SED_COMMAND=$(subs "s/^${VERSION_PATTERN}.?\$/\1/" "%v" "($VERSION_FORMAT)")
 LAT_VER_TAG=$($VERSION_COMMAND $VERSION_URL | grep -E "$GREP_FILTER" | sed -E "$SED_COMMAND")
 
-SED_COMMAND=$(subs "s/^$STORED_ARCHIVE_PATTERN\$/\1/" "%v" "($VERSION_FORMAT)")
+SED_COMMAND=$(subs "s/$STORED_ARCHIVE_PATTERN/\1/" "%v" "($VERSION_FORMAT)")
 if [ -d "$ARCHIVE_FOLDER" ]; then
     STORED_VER="$ARCHIVE_FOLDER/$(ls -rv "$ARCHIVE_FOLDER" | head -n 1)"
     LOC_VER_TAG=$(ls -rv "$ARCHIVE_FOLDER" | head -n 1 | sed -E "$SED_COMMAND")
