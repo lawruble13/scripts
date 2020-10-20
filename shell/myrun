@@ -1,5 +1,7 @@
 #!/bin/bash
 
+# Config file for a given application should be located at ./.runconf.sh
+
 function subs {
     TO_SUBS=$(echo -n "$3" | sed -E 's/\\/\\\\/g')
     echo -n $1 | sed -E "s/$2/${TO_SUBS}/g"
@@ -12,57 +14,75 @@ else
     exit 1
 fi
 
-ARC_VER_FORMAT=$(subs "$ARCHIVE_FORMAT" "%v" "$VERSION_FORMAT")
+GREP_FILTER=$(subs "^$VERSION_PATTERN\$" "%v" "$VERSION_FORMAT")
+SED_COMMAND=$(subs "s/^$VERSION_PATTERN\$/\1/" "%v" "($VERSION_FORMAT)")
+LAT_VER_TAG=$($VERSION_COMMAND $VERSION_URL | grep -E "$GREP_FILTER" | sed -E "$SED_COMMAND")
 
-REMOTE_LV=$(curl -sI $url | grep -o -E 'filename=.*$' | sed -E $(subs 's/filename=(%f).*$/\1/' "%f" "$ARC_VER_FORMAT"))
-LOCAL_LV=$(ls -rv "$ARCHIVE_FOLDER" | head -n 1)
-ACTUAL_LV=$(echo -e "${REMOTE_LV}\n${LOCAL_LV}" | sort -rV | head -n 1)
-USED_VER="$LOCAL_LV"
-if [[ "$LOCAL_LV" == "$ACTUAL_LV" ]]; then
-    echo "Already up to date. Starting..."
-    if [[ "$REMOTE_LV" != "$ACTUAL_LV" ]]; then
-	echo "Local version more recent than remote version." >&2
-    fi
+SED_COMMAND=$(subs "s/^$STORED_ARCHIVE_PATTERN\$/\1/" "%v" "($VERSION_FORMAT)")
+if [ -d "$ARCHIVE_FOLDER" ]; then
+    STORED_VER="$ARCHIVE_FOLDER/$(ls -rv "$ARCHIVE_FOLDER" | head -n 1)"
+    LOC_VER_TAG=$(ls -rv "$ARCHIVE_FOLDER" | head -n 1 | sed -E "$SED_COMMAND")
 else
-    read -p "A new version is available. Would you like to download it? (y/n) " response
-    while [[ "$response" != "n" ]] && [[ "$response" != "y" ]]; do
-	read -p "Please enter y or n. " response
-    done
-    if [[ "$response" == "y" ]]; then
-	echo "Downloading new version..."
-	MYPATH=$(pwd)
-	cd "$ARCHIVE_FOLDER"
-	curl -O -J -L $url
-	cd "$MYPATH"
-	USED_VER="$REMOTE_LV"
+    STORED_VER=""
+    LOC_VER_TAG=""
+fi
+
+if [ "$LAT_VER_TAG" == "$LOC_VER_TAG" ]; then
+    echo "Already up to date. Starting..."
+else
+    ACTUAL_LATEST=$(echo -e "${LAT_VER_TAG}\n${LOC_VER_TAG}" | sort -rV | head -n 1)
+    if [ "$LOC_VER_TAG" == "$ACTUAL_LATEST" ]; then
+	echo "Local version more recent than remote version." >&2
     else
-	echo "Okay. Starting old version..."
+	if [ "$LOC_VER_TAG" == "" ]; then
+	    response="y"
+	else
+       	    read -p "A new version is available. Would you like to download it? (y/n) " response
+	fi
+	while [[ "$response" != "n" ]] && [[ "$response" != "y" ]]; do
+	    read -p "Please enter y or n. " response
+	done
+	if [[ "$response" == "y" ]]; then
+	    echo "Downloading new version..."
+	    if [ ! -d "$ARCHIVE_FOLDER" ]; then
+		mkdir "$ARCHIVE_FOLDER"
+	    fi
+	    STORED_VER=$(subs "${ARCHIVE_FOLDER}/${STORED_ARCHIVE_PATTERN}" "%v" "$LAT_VER_TAG")
+	    LOC_VER_TAG="$LAT_VER_TAG"
+	    if [ -f "$STORED_VER" ]; then
+		echo "Remote version already exists locally, something's gone wrong." >&2
+		exit
+	    fi
+	    DOWNLOAD_LOC=$(subs "$DOWNLOAD_URL" "%v" "$LAT_VER_TAG")
+	    $DOWNLOAD_COMMAND -o "$STORED_VER" -L "$DOWNLOAD_LOC"
+	else
+	    echo "Okay. Starting old version..."
+	fi
     fi
 fi
 
-VERSION_NUMBER=$(echo -n "$USED_VER" | sed -E $(subs "s/${ARCHIVE_FORMAT}/\1/" "%v" "(${VERSION_FORMAT})"))
-EXEC_VER_PATH=$(subs "Executable/${EXEC_FORMAT}" "%v" "${VERSION_NUMBER}")
-
+EXEC_VER_PATH=$(subs "${EXEC_FOLDER}/%v/${EXEC_FORMAT}" "%v" "${LOC_VER_TAG}")
 if [ -e "$EXEC_VER_PATH" ]; then
     echo "No unpacking necessary."
 else
     echo "Unpacking..."
-    if [ -d ./Executable ]; then
-	rm -rf ./Executable/*
+    if [ -d "./$EXEC_FOLDER" ]; then
+	rm -rf "./${EXEC_FOLDER}/"*
     else
-	mkdir Executable
+	mkdir "$EXEC_FOLDER"
     fi
+    mkdir "${EXEC_FOLDER}/${LOC_VER_TAG}"
     if [ -d ./Temp ]; then
 	rm -rf ./Temp
     fi
     mkdir Temp
-    $EXTRACT_COMMAND $EXTRACT_LOC_FLAG Temp "${ARCHIVE_FOLDER}/${USED_VER}"
-    MOVE_ITEM_FOLDER=$(subs "./Temp/${MOVE_FROM_TEMP}" "%v" "${VERSION_NUMBER}")
-    mv "$MOVE_ITEM_FOLDER"* ./Executable/
+    $EXTRACT_COMMAND "$STORED_VER" $EXTRACT_LOC_FLAG Temp
+    MOVE_ITEMS_FOLDER=$(subs "./Temp/${MOVE_ALL_UNDER}/" "%v" "${LOC_VER_TAG}")
+    mv "$MOVE_ITEMS_FOLDER"* "./${EXEC_FOLDER}/${LOC_VER_TAG}/"
     rm -rf Temp
 fi
 
-if grep -q Microsoft /proc/version; then
+if grep -iq microsoft /proc/version; then
     nohup "./$EXEC_VER_PATH" &>/dev/null &
 else
     nohup wine "./$EXEC_VER_PATH" &>/dev/null &
