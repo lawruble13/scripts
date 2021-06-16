@@ -3,7 +3,7 @@
 # Config file for a given application should be located at ./.runconf.sh
 
 function subs {
-    TO_SUBS=$(echo -n "$3" | sed -E 's/\\/\\\\/g')
+    TO_SUBS=$(echo -n "$3" | sed -E 's/\\/\\\\/g;s,/,\\/,g')
     echo -n $1 | sed -E "s/$2/${TO_SUBS}/g"
 }
 
@@ -17,6 +17,7 @@ fi
 GREP_FILTER=$(subs "^$VERSION_PATTERN.?\$" "%v" "$VERSION_FORMAT")
 SED_COMMAND=$(subs "s/^${VERSION_PATTERN}.?\$/\1/" "%v" "($VERSION_FORMAT)")
 LAT_VER_TAG=$($VERSION_COMMAND $VERSION_URL | grep -E "$GREP_FILTER" | sed -E "$SED_COMMAND")
+echo "LAT_VER_TAG: $LAT_VER_TAG"
 
 SED_COMMAND=$(subs "s/$STORED_ARCHIVE_PATTERN/\1/" "%v" "($VERSION_FORMAT)")
 if [ -d "$ARCHIVE_FOLDER" ]; then
@@ -83,7 +84,20 @@ else
 fi
 
 if grep -iq microsoft /proc/version; then
-    nohup "./$EXEC_VER_PATH" &>/dev/null &
+    [ -z "$EXEC_COMMAND_WINDOWS" ] && EXEC_COMMAND_WINDOWS="%x"
+    [ -z "$EXEC_COMMAND_WINDOWS_ARGS" ] && EXEC_COMMAND_WINDOWS_ARGS=()
+    EXEC_COMMAND_WINDOWS=$(subs "$EXEC_COMMAND_WINDOWS" "%x" "./$EXEC_VER_PATH")
+    for i in ${!EXEC_COMMAND_WINDOWS_ARGS[@]}; do
+	EXEC_COMMAND_WINDOWS_ARGS[$i]=$(subs "${EXEC_COMMAND_WINDOWS_ARGS[$i]}" "%x" "./$EXEC_VER_PATH")
+    done
+    nohup "$EXEC_COMMAND_WINDOWS" "${EXEC_COMMAND_WINDOWS_ARGS[@]}" &>/dev/null &
 else
-    nohup wine "./$EXEC_VER_PATH" &>/dev/null &
+    [ -z "$EXEC_COMMAND_LINUX" ] && EXEC_COMMAND_LINUX="wine"
+    [ -z "$EXEC_COMMAND_LINUX_ARGS" ] && EXEC_COMMAND_LINUX_ARGS=("%x")
+    EXEC_COMMAND_LINUX=$(subs "$EXEC_COMMAND_LINUX" "%x" "./$EXEC_VER_PATH")
+    for i in ${!EXEC_COMMAND_LINUX_ARGS[@]}; do
+	EXEC_COMMAND_LINUX_ARGS[$i]=$(subs "${EXEC_COMMAND_LINUX_ARGS[$i]}" "%x" "./$EXEC_VER_PATH")
+    done
+    nohup "$EXEC_COMMAND_LINUX" "${EXEC_COMMAND_LINUX_ARGS[@]}" &>/dev/null &
 fi
+

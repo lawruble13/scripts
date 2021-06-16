@@ -1,0 +1,2 @@
+#!/bin/bash
+echo $(readlink -f "$1" | sed -e 's|/mnt/c|c:|' -e 's|/|\\|g')
